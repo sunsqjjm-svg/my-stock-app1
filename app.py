@@ -152,4 +152,5 @@ while True:
                 .apply(apply_style, axis=1),
                 use_container_width=True, height=800
             )
+
     time.sleep(5)
