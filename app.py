@@ -8,13 +8,13 @@ import time
 # 页面配置
 st.set_page_config(page_title="A股量化决策终端", layout="wide")
 
-# 强制隐藏顶部和底部干扰
+# 强制隐藏顶部和底部干扰，优化移动端间距
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
-    .block-container {padding-top: 2rem;}
+    .block-container {padding-top: 1.5rem; padding-bottom: 1rem;}
     </style>
 """, unsafe_allow_html=True)
 
@@ -83,19 +83,31 @@ def load_base_data():
         except: pass
     return results
 
-# --- 样式引擎 ---
+# --- 核心样式引擎 ---
 def apply_style(row):
+    # 基础对齐设置
     styles = ['text-align: center; vertical-align: middle; font-family: monospace;'] * len(row)
+    # 获取列名对应的位置索引
     c = {col: i for i, col in enumerate(row.index)}
     decision = str(row['当前决策'])
     
+    # 1. 核心行背景逻辑
     if "止盈" in decision: return ['background-color: #F8F0FF; color: #6A1B9A; font-weight: bold; text-align: center;'] * len(row)
     if "点火" in decision: return ['background-color: #FFF9F9; color: #D70000; font-weight: bold; text-align: center;'] * len(row)
     
-    # 现价红绿 (比较120日线数据，虽然它在UI里被隐藏了)
+    # 2. 现价红绿 (比较120日线)
     if row['现价'] >= row['MA120_RAW']: styles[c['现价']] += 'color: #D70000; font-weight: bold;'
     else: styles[c['现价']] += 'color: #008000; font-weight: bold;'
     
+    # 3. 今日涨跌红绿 (新增)
+    if row['今日涨跌'] > 0: styles[c['今日涨跌']] += 'color: #D70000;'
+    elif row['今日涨跌'] < 0: styles[c['今日涨跌']] += 'color: #008000;'
+    
+    # 4. 距买点高亮 (新增)
+    if abs(row['距买点']) <= 10:
+        styles[c['距买点']] += 'color: #D70000; font-weight: bold;'
+    
+    # 5. 决策胶囊样式
     pill = 'display: inline-block; width: 140px; padding: 2px; border-radius: 12px; font-size: 12px; border: 1px solid;'
     if "黄金地窖" in decision: styles[c['当前决策']] += pill + 'background-color: #F0F7FF; color: #0077ED; border-color: #D6E9FF;'
     elif "点火起飞" in decision: styles[c['当前决策']] += pill + 'background-color: #FFE6E6; color: #D00000; border-color: #FFCCCC;'
@@ -103,10 +115,11 @@ def apply_style(row):
     elif "正常震荡" in decision: styles[c['当前决策']] += pill + 'background-color: #F8F9FA; color: #777; border-color: #E9ECEF;'
     elif "乌合之众" in decision: styles[c['当前决策']] += pill + 'background-color: #F8F9FA; color: #BBB; border-color: #F1F3F5;'
     
+    # 6. 分割线
     styles[c['获利盘']] += 'border-right: 2px solid #2C3E50 !important; font-weight: bold;'
     return styles
 
-# --- 主界面 ---
+# --- 主程序逻辑 ---
 st.title("📈 A股量化决策终端 V12.0")
 
 if 'model_data' not in st.session_state:
@@ -150,17 +163,16 @@ while True:
     if data_rows:
         df = pd.DataFrame(data_rows).sort_values("距买点")
         with placeholder.container():
-            st.caption(f"数据实时刷新中 | 刷新时间: {time.strftime('%H:%M:%S')}")
-            # --- 核心 UI 改进点 ---
+            st.caption(f"数据实时更新中 | 刷新时间: {time.strftime('%H:%M:%S')}")
             st.dataframe(
-                df.style.hide(axis='index') # 隐藏 Styler 的索引
+                df.style.hide(axis='index')
                 .bar(subset=['获利盘'], color='#FFC1C1', vmin=0, vmax=100)
                 .format("{:.2f}", subset=["现价", "阻力位"])
                 .format("{:+.2f}%", subset=["今日涨跌", "距阻力", "距买点", "需涨幅"])
                 .format("{:.2f}%", subset=["集中度", "获利盘"])
                 .apply(apply_style, axis=1),
-                column_order=("股票", "现价", "今日涨跌", "集中度", "获利盘", "当前决策", "阻力位", "距阻力", "距买点", "需涨幅"), # 显式下令列顺序，不包含MA120_RAW
-                hide_index=True, # 彻底隐藏左侧序号
+                column_order=("股票", "现价", "今日涨跌", "集中度", "获利盘", "当前决策", "阻力位", "距阻力", "距买点", "需涨幅"),
+                hide_index=True,
                 use_container_width=True, height=800
             )
     time.sleep(5)
