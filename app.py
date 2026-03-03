@@ -8,15 +8,15 @@ import time
 # 页面配置
 st.set_page_config(page_title="A股量化决策终端", layout="wide")
 
-# 强制隐藏Streamlit默认的菜单和页脚
-hide_style = """
+# 强制隐藏顶部和底部干扰
+st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
+    .block-container {padding-top: 2rem;}
     </style>
-"""
-st.markdown(hide_style, unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
 # --- 股票清单 (V12.0) ---
 stock_list =[
@@ -52,7 +52,6 @@ def calculate_concentration(df_part):
         df_sorted = df_part.sort_values(by='Close')
         df_sorted['CumVol'] = df_sorted['Volume'].cumsum()
         total_vol = df_sorted['Volume'].sum()
-        # 寻找5%和95%分位点的价格
         p05_idx = df_sorted['CumVol'].searchsorted(total_vol * 0.05)
         p95_idx = df_sorted['CumVol'].searchsorted(total_vol * 0.95)
         p05 = df_sorted.iloc[min(p05_idx, len(df_sorted)-1)]['Close']
@@ -60,50 +59,43 @@ def calculate_concentration(df_part):
         return (p95 - p05) / (p95 + p05) * 100, p95
     except: return 999, 0
 
-@st.cache_data(ttl=3600) # 历史建模每小时刷新一次
+@st.cache_data(ttl=3600)
 def load_base_data():
     yahoo_tickers = [item['code'][2:] + (".SS" if item['code'].startswith('sh') else ".SZ") for item in stock_list]
     data = yf.download(" ".join(yahoo_tickers), period="6mo", progress=False)
     results = {}
     for y_code, item in zip(yahoo_tickers, stock_list):
         try:
-            # 兼容多只股票下载后的MultiIndex列名
             if isinstance(data.columns, pd.MultiIndex):
                 s_close = data['Close'][y_code]
                 s_vol = data['Volume'][y_code]
             else:
                 s_close = data['Close']
                 s_vol = data['Volume']
-            
             df = pd.DataFrame({'Close': s_close, 'Volume': s_vol}).dropna()
             if len(df) > 0:
                 df_calc = df.iloc[-120:]
-                ma_val = df_calc['Close'].mean()
                 conc, cost90 = calculate_concentration(df_calc)
                 results[item['code']] = {
-                    'history_close': df_calc['Close'].values,
-                    'history_vol': df_calc['Volume'].values,
-                    'ma120': ma_val, 'concentration': conc, 'cost_90': cost90
+                    'h_close': df_calc['Close'].values, 'h_vol': df_calc['Volume'].values,
+                    'ma120': float(df_calc['Close'].mean()), 'concentration': conc, 'cost_90': cost90
                 }
         except: pass
     return results
 
 # --- 样式引擎 ---
 def apply_style(row):
-    # 基础对齐
     styles = ['text-align: center; vertical-align: middle; font-family: monospace;'] * len(row)
     c = {col: i for i, col in enumerate(row.index)}
-    decision = row['当前决策']
+    decision = str(row['当前决策'])
     
-    # 核心背景逻辑
     if "止盈" in decision: return ['background-color: #F8F0FF; color: #6A1B9A; font-weight: bold; text-align: center;'] * len(row)
     if "点火" in decision: return ['background-color: #FFF9F9; color: #D70000; font-weight: bold; text-align: center;'] * len(row)
     
-    # 现价红绿
-    if row['现价'] >= row['120日线']: styles[c['现价']] += 'color: #D70000; font-weight: bold;'
+    # 现价红绿 (比较120日线数据，虽然它在UI里被隐藏了)
+    if row['现价'] >= row['MA120_RAW']: styles[c['现价']] += 'color: #D70000; font-weight: bold;'
     else: styles[c['现价']] += 'color: #008000; font-weight: bold;'
     
-    # 决策胶囊样式
     pill = 'display: inline-block; width: 140px; padding: 2px; border-radius: 12px; font-size: 12px; border: 1px solid;'
     if "黄金地窖" in decision: styles[c['当前决策']] += pill + 'background-color: #F0F7FF; color: #0077ED; border-color: #D6E9FF;'
     elif "点火起飞" in decision: styles[c['当前决策']] += pill + 'background-color: #FFE6E6; color: #D00000; border-color: #FFCCCC;'
@@ -111,7 +103,6 @@ def apply_style(row):
     elif "正常震荡" in decision: styles[c['当前决策']] += pill + 'background-color: #F8F9FA; color: #777; border-color: #E9ECEF;'
     elif "乌合之众" in decision: styles[c['当前决策']] += pill + 'background-color: #F8F9FA; color: #BBB; border-color: #F1F3F5;'
     
-    # 增加逻辑分割线
     styles[c['获利盘']] += 'border-right: 2px solid #2C3E50 !important; font-weight: bold;'
     return styles
 
@@ -124,7 +115,6 @@ if 'model_data' not in st.session_state:
 
 placeholder = st.empty()
 
-# 自动刷新主循环
 while True:
     data_rows = []
     for item in stock_list:
@@ -136,8 +126,7 @@ while True:
                 pre_close = float(elements[2])
                 m = st.session_state.model_data.get(item['code'])
                 if not m: continue
-                
-                profit = (m['history_vol'][m['history_close'] <= curr].sum() / m['history_vol'].sum() * 100)
+                profit = (m['h_vol'][m['h_close'] <= curr].sum() / m['h_vol'].sum() * 100)
                 
                 decision = "--"
                 if curr >= item['sell']: decision = "💰 止盈出局 🚀🚀🚀"
@@ -151,7 +140,7 @@ while True:
 
                 data_rows.append({
                     "股票": item['name'], "现价": curr, "今日涨跌": (curr-pre_close)/pre_close*100,
-                    "120日线": m['ma120'], "集中度": m['concentration'], "获利盘": profit,
+                    "MA120_RAW": m['ma120'], "集中度": m['concentration'], "获利盘": profit,
                     "当前决策": decision, "阻力位": m['cost_90'], 
                     "距阻力": (curr-m['cost_90'])/m['cost_90']*100,
                     "距买点": (curr-item['buy'])/item['buy']*100, "需涨幅": (item['sell']-curr)/curr*100
@@ -161,16 +150,17 @@ while True:
     if data_rows:
         df = pd.DataFrame(data_rows).sort_values("距买点")
         with placeholder.container():
-            st.caption(f"数据实时刷新中 (5秒/次) | 更新时间: {time.strftime('%H:%M:%S')}")
-            # 应用样式和格式化
+            st.caption(f"数据实时刷新中 | 刷新时间: {time.strftime('%H:%M:%S')}")
+            # --- 核心 UI 改进点 ---
             st.dataframe(
-                df.style.hide(axis='index')
-                .hide(subset=["120日线"], axis="columns") # 此处已修正
+                df.style.hide(axis='index') # 隐藏 Styler 的索引
                 .bar(subset=['获利盘'], color='#FFC1C1', vmin=0, vmax=100)
                 .format("{:.2f}", subset=["现价", "阻力位"])
                 .format("{:+.2f}%", subset=["今日涨跌", "距阻力", "距买点", "需涨幅"])
                 .format("{:.2f}%", subset=["集中度", "获利盘"])
                 .apply(apply_style, axis=1),
+                column_order=("股票", "现价", "今日涨跌", "集中度", "获利盘", "当前决策", "阻力位", "距阻力", "距买点", "需涨幅"), # 显式下令列顺序，不包含MA120_RAW
+                hide_index=True, # 彻底隐藏左侧序号
                 use_container_width=True, height=800
             )
     time.sleep(5)
