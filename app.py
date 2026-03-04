@@ -8,7 +8,7 @@ import time
 # =========================================================================
 #  1. 页面基础配置
 # =========================================================================
-st.set_page_config(page_title="量化决策终端V15.0", layout="wide")
+st.set_page_config(page_title="量化决策终端V15.1", layout="wide")
 
 st.markdown("""
     <style>
@@ -81,18 +81,19 @@ def load_base_data():
     return results
 
 # =========================================================================
-#  V15.0 样式引擎：修正视觉优先级
+#  V15.1 样式引擎：修正逻辑死角
 # =========================================================================
 def apply_style(row):
     styles = ['text-align: center; vertical-align: middle; font-family: monospace;'] * len(row)
     c = {col: i for i, col in enumerate(row.index)}
     decision = str(row['当前决策'])
     
-    # 1. 核心行背景 (点火/止盈)
+    # 1. 核心行背景
     if "止盈" in decision: return ['background-color: #F8F0FF; color: #6A1B9A; font-weight: bold; text-align: center;'] * len(row)
     if "起飞" in decision: return ['background-color: #FFF2F2; color: #D70000; font-weight: bold; text-align: center;'] * len(row)
-    
-    # 2. 现价趋势
+    if "🔥" in decision: styles[c['当前决策']] = 'color: #D70000; font-weight: bold; border: 1px solid red;'
+
+    # 2. 现价红绿
     if row['现价'] >= row['MA120_RAW']: styles[c['现价']] += 'color: #D70000; font-weight: bold;'
     else: styles[c['现价']] += 'color: #008000; font-weight: bold;'
     
@@ -100,21 +101,29 @@ def apply_style(row):
     if row['今日涨跌'] > 0: styles[c['今日涨跌']] += 'color: #D70000;'
     elif row['今日涨跌'] < 0: styles[c['今日涨跌']] += 'color: #008000;'
     
-    # 4. 决策胶囊 (配色重新分级)
-    pill = 'display: inline-block; width: 145px; padding: 2px; border-radius: 12px; font-size: 11px; border: 1px solid;'
-    if "点火起飞" in decision: styles[c['当前决策']] += pill + 'background-color: #D70000; color: white; border-color: #A30000;'
+    # 4. 决策胶囊 (新增极品筹码颜色)
+    pill = 'display: inline-block; width: 155px; padding: 2px; border-radius: 12px; font-size: 11px; border: 1px solid;'
+    if "起飞" in decision: styles[c['当前决策']] += pill + 'background-color: #D70000; color: white; border-color: #A30000;'
     elif "临界爆发" in decision: styles[c['当前决策']] += pill + 'background-color: #FF8C00; color: white; border-color: #E67E22;'
     elif "黄金地窖" in decision: styles[c['当前决策']] += pill + 'background-color: #0077ED; color: white; border-color: #0056B3;'
-    elif "极致洗盘" in decision: styles[c['当前决策']] += pill + 'background-color: #F2FFF0; color: #008F00; border-color: #D9FFD6;'
-    elif "核心聚拢" in decision: styles[c['当前决策']] += pill + 'background-color: #E0F7FA; color: #00838F; border-color: #B2EBF2;'
-    elif "乌合之众" in decision: styles[c['当前决策']] += pill + 'background-color: #F8F9FA; color: #BBB; border-color: #F1F3F5;'
+    
+    # 极品筹码标识颜色 (深金色)
+    if row['集中度90'] < 5 and "起飞" not in decision and "止盈" not in decision:
+        styles[c['当前决策']] += pill + 'background-color: #B8860B; color: white; border-color: #8B6508;'
+    elif "极致洗盘" in decision: 
+        styles[c['当前决策']] += pill + 'background-color: #F2FFF0; color: #008F00; border-color: #D9FFD6;'
+    elif "核心聚拢" in decision: 
+        styles[c['当前决策']] += pill + 'background-color: #E0F7FA; color: #00838F; border-color: #B2EBF2;'
+    elif "乌合之众" in decision: 
+        styles[c['当前决策']] += pill + 'background-color: #F8F9FA; color: #BBB; border-color: #F1F3F5;'
     
     if abs(row['距买点']) <= 10: styles[c['距买点']] += 'color: #D70000; font-weight: bold; border: 1px solid #FFD2D2;'
     styles[c['获利盘']] += 'border-right: 2px solid #2C3E50 !important; font-weight: bold;'
     return styles
 
 # --- 主程序 ---
-st.title("🚀 A股实战量化决策终端 V15.0")
+st.title("🚀 A股实战量化决策终端 V15.1")
+st.info("💡 V15.1 升级：集中度 < 5% 自动升星为[4.5★]深金标签；地窖门槛放宽至 40% 获利盘。")
 
 if 'model_data' not in st.session_state:
     with st.spinner("正在校准最新筹码模型..."):
@@ -133,33 +142,36 @@ while True:
                 m = st.session_state.model_data.get(item['code'])
                 if not m: continue
                 profit = (m['h_vol'][m['h_close'] <= curr].sum() / m['h_vol'].sum() * 100)
-                dist_90 = (curr - m['cost_90'])/m['cost_90']*100
+                dist_buy = (curr-item['buy'])/item['buy']*100
                 
-                # --- V15.0 终极实战引擎 ---
+                # --- V15.1 最终优化引擎 ---
                 decision = "--"
+                star = "4.5★" if m['scr90'] < 5 else "4★" if profit < 40 else "3.5★"
+                
                 if curr >= item['sell']: decision = "💰 止盈出局 🚀🚀🚀"
                 elif curr <= item['buy']: decision = "⚡ 触发买入 [Buy Now]"
                 
-                # 情况A: 筹码90%绝对集中 (顶级选手)
+                # 情况A: 筹码90%绝对集中 (顶级形态)
                 elif m['scr90'] < 7:
                     if curr > m['cost_90']: decision = "🚀 点火起飞 [5★]"
-                    elif profit > 90: decision = "💥 临界爆发 [4.5★]" # 极其接近起飞
-                    elif profit < 30: decision = "💎 黄金地窖 [4★]"
-                    else: decision = "🧘 极致洗盘 [3.5★]"
+                    elif profit > 90: decision = "💥 临界爆发 [4.5★]"
+                    elif profit < 40: decision = f"💎 黄金地窖 [{star}]" # 地窖门槛放宽至40%
+                    else: decision = f"🧘 极致洗盘 [{star}]"
                 
-                # 情况B: 核心70%集中 (次级选手)
-                elif m['scr70'] < 7:
-                    decision = "🎯 核心聚拢 [3★]"
-                
-                # 情况C: 涣散
+                # 情况B: 核心70%集中
+                elif m['scr70'] < 7: decision = "🎯 核心聚拢 [3★]"
                 elif m['scr90'] > 10: decision = "⚠️ 乌合之众 [1★]"
                 else: decision = "⏳ 正常震荡 [2★]"
+
+                # 【火警雷达】距买点3%以内强制提醒
+                if 0 < dist_buy <= 3 and "止盈" not in decision:
+                    decision += " | 🔥 临界买点"
 
                 data_rows.append({
                     "股票": item['name'], "现价": curr, "今日涨跌": (curr-float(elements[2]))/float(elements[2])*100,
                     "MA120_RAW": m['ma120'], "集中度90": m['scr90'], "集中度70": m['scr70'], "获利盘": profit,
-                    "当前决策": decision, "阻力位": m['cost_90'], "距阻力": dist_90,
-                    "距买点": (curr-item['buy'])/item['buy']*100, "需涨幅": (item['sell']-curr)/curr*100
+                    "当前决策": decision, "阻力位": m['cost_90'], "距阻力": (curr-m['cost_90'])/m['cost_90']*100,
+                    "距买点": dist_buy, "需涨幅": (item['sell']-curr)/curr*100
                 })
         except: pass
 
