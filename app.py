@@ -8,7 +8,7 @@ import time
 # 页面配置
 st.set_page_config(page_title="A股量化决策终端", layout="wide")
 
-# 强制隐藏顶部和底部干扰，优化移动端间距
+# 强制隐藏干扰
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
@@ -18,7 +18,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 股票清单 (V12.0) ---
+# --- 股票清单 ---
 stock_list =[
     {"code": "sz002100", "name": "天康生物", "buy": 7.0,   "sell": 10.0},
     {"code": "sh603977", "name": "国泰集团", "buy": 12.0,  "sell": 20.0},
@@ -46,18 +46,25 @@ stock_list =[
     {"code": "sh601618", "name": "中国中冶", "buy": 3.0,   "sell": 10.0},
 ]
 
-# --- 核心计算逻辑 ---
-def calculate_concentration(df_part):
+# --- 核心算法：同时提取90%和70%集中度 ---
+def calculate_advanced_scr(df_part):
     try:
         df_sorted = df_part.sort_values(by='Close')
         df_sorted['CumVol'] = df_sorted['Volume'].cumsum()
         total_vol = df_sorted['Volume'].sum()
-        p05_idx = df_sorted['CumVol'].searchsorted(total_vol * 0.05)
-        p95_idx = df_sorted['CumVol'].searchsorted(total_vol * 0.95)
-        p05 = df_sorted.iloc[min(p05_idx, len(df_sorted)-1)]['Close']
-        p95 = df_sorted.iloc[min(p95_idx, len(df_sorted)-1)]['Close']
-        return (p95 - p05) / (p95 + p05) * 100, p95
-    except: return 999, 0
+        
+        # 90% 集中度 (5%-95%)
+        p05 = df_sorted.iloc[df_sorted['CumVol'].searchsorted(total_vol * 0.05)]['Close']
+        p95 = df_sorted.iloc[min(df_sorted['CumVol'].searchsorted(total_vol * 0.95), len(df_sorted)-1)]['Close']
+        scr_90 = (p95 - p05) / (p95 + p05) * 100
+        
+        # 70% 集中度 (15%-85%)
+        p15 = df_sorted.iloc[df_sorted['CumVol'].searchsorted(total_vol * 0.15)]['Close']
+        p85 = df_sorted.iloc[min(df_sorted['CumVol'].searchsorted(total_vol * 0.85), len(df_sorted)-1)]['Close']
+        scr_70 = (p85 - p15) / (p85 + p15) * 100
+        
+        return scr_90, scr_70, p95
+    except: return 999, 999, 0
 
 @st.cache_data(ttl=3600)
 def load_base_data():
@@ -66,64 +73,53 @@ def load_base_data():
     results = {}
     for y_code, item in zip(yahoo_tickers, stock_list):
         try:
-            if isinstance(data.columns, pd.MultiIndex):
-                s_close = data['Close'][y_code]
-                s_vol = data['Volume'][y_code]
-            else:
-                s_close = data['Close']
-                s_vol = data['Volume']
+            s_close = data['Close'][y_code] if isinstance(data.columns, pd.MultiIndex) else data['Close']
+            s_vol = data['Volume'][y_code] if isinstance(data.columns, pd.MultiIndex) else data['Volume']
             df = pd.DataFrame({'Close': s_close, 'Volume': s_vol}).dropna()
             if len(df) > 0:
                 df_calc = df.iloc[-120:]
-                conc, cost90 = calculate_concentration(df_calc)
+                scr90, scr70, cost90 = calculate_advanced_scr(df_calc)
                 results[item['code']] = {
                     'h_close': df_calc['Close'].values, 'h_vol': df_calc['Volume'].values,
-                    'ma120': float(df_calc['Close'].mean()), 'concentration': conc, 'cost_90': cost90
+                    'ma120': float(df_calc['Close'].mean()), 
+                    'scr90': scr90, 'scr70': scr70, 'cost_90': cost90
                 }
         except: pass
     return results
 
-# --- 核心样式引擎 ---
+# --- 样式引擎 ---
 def apply_style(row):
-    # 基础对齐设置
     styles = ['text-align: center; vertical-align: middle; font-family: monospace;'] * len(row)
-    # 获取列名对应的位置索引
     c = {col: i for i, col in enumerate(row.index)}
     decision = str(row['当前决策'])
     
-    # 1. 核心行背景逻辑
     if "止盈" in decision: return ['background-color: #F8F0FF; color: #6A1B9A; font-weight: bold; text-align: center;'] * len(row)
     if "点火" in decision: return ['background-color: #FFF9F9; color: #D70000; font-weight: bold; text-align: center;'] * len(row)
     
-    # 2. 现价红绿 (比较120日线)
     if row['现价'] >= row['MA120_RAW']: styles[c['现价']] += 'color: #D70000; font-weight: bold;'
     else: styles[c['现价']] += 'color: #008000; font-weight: bold;'
     
-    # 3. 今日涨跌红绿 (新增)
     if row['今日涨跌'] > 0: styles[c['今日涨跌']] += 'color: #D70000;'
     elif row['今日涨跌'] < 0: styles[c['今日涨跌']] += 'color: #008000;'
     
-    # 4. 距买点高亮 (新增)
-    if abs(row['距买点']) <= 10:
-        styles[c['距买点']] += 'color: #D70000; font-weight: bold;'
+    if abs(row['距买点']) <= 10: styles[c['距买点']] += 'color: #D70000; font-weight: bold;'
     
-    # 5. 决策胶囊样式
-    pill = 'display: inline-block; width: 140px; padding: 2px; border-radius: 12px; font-size: 12px; border: 1px solid;'
+    pill = 'display: inline-block; width: 145px; padding: 2px; border-radius: 12px; font-size: 12px; border: 1px solid;'
     if "黄金地窖" in decision: styles[c['当前决策']] += pill + 'background-color: #F0F7FF; color: #0077ED; border-color: #D6E9FF;'
     elif "点火起飞" in decision: styles[c['当前决策']] += pill + 'background-color: #FFE6E6; color: #D00000; border-color: #FFCCCC;'
+    elif "核心聚拢" in decision: styles[c['当前决策']] += pill + 'background-color: #E0F7FA; color: #006064; border-color: #B2EBF2;'
     elif "极致洗盘" in decision: styles[c['当前决策']] += pill + 'background-color: #F2FFF0; color: #008F00; border-color: #D9FFD6;'
     elif "正常震荡" in decision: styles[c['当前决策']] += pill + 'background-color: #F8F9FA; color: #777; border-color: #E9ECEF;'
     elif "乌合之众" in decision: styles[c['当前决策']] += pill + 'background-color: #F8F9FA; color: #BBB; border-color: #F1F3F5;'
     
-    # 6. 分割线
     styles[c['获利盘']] += 'border-right: 2px solid #2C3E50 !important; font-weight: bold;'
     return styles
 
-# --- 主程序逻辑 ---
-st.title("📈 A股量化决策终端 V12.0")
+# --- 主程序 ---
+st.title("📈 A股量化决策终端 V13.0")
 
 if 'model_data' not in st.session_state:
-    with st.spinner("正在初始化量化模型..."):
+    with st.spinner("正在初始化双重集中度建模..."):
         st.session_state.model_data = load_base_data()
 
 placeholder = st.empty()
@@ -136,24 +132,28 @@ while True:
             elements = res.text.split(',')
             if len(elements) > 3:
                 curr = float(elements[3]) if float(elements[3]) != 0 else float(elements[2])
-                pre_close = float(elements[2])
                 m = st.session_state.model_data.get(item['code'])
                 if not m: continue
                 profit = (m['h_vol'][m['h_close'] <= curr].sum() / m['h_vol'].sum() * 100)
                 
+                # --- 新增 70% 集中度判定逻辑 ---
                 decision = "--"
                 if curr >= item['sell']: decision = "💰 止盈出局 🚀🚀🚀"
-                elif m['concentration'] > 10: decision = "⚠️ 乌合之众"
-                elif m['concentration'] < 7:
+                elif m['scr90'] > 10 and m['scr70'] > 7: decision = "⚠️ 乌合之众"
+                elif m['scr90'] < 7:
                     if curr > m['cost_90']: decision = "🚀 点火起飞 ⭐⭐⭐⭐⭐"
                     elif profit < 30: decision = "💎 黄金地窖 ⭐⭐⭐⭐"
                     else: decision = "🧘 极致洗盘 ⭐⭐⭐"
-                else: decision = "⏳ 正常震荡 ⭐⭐"
+                elif m['scr70'] < 7: # 新增此判断
+                    decision = "🎯 核心聚拢 ⭐⭐⭐⭐"
+                else:
+                    decision = "⏳ 正常震荡 ⭐⭐"
+                
                 if curr <= item['buy'] and "止盈" not in decision: decision += " (买点!)"
 
                 data_rows.append({
-                    "股票": item['name'], "现价": curr, "今日涨跌": (curr-pre_close)/pre_close*100,
-                    "MA120_RAW": m['ma120'], "集中度": m['concentration'], "获利盘": profit,
+                    "股票": item['name'], "现价": curr, "今日涨跌": (curr-float(elements[2]))/float(elements[2])*100,
+                    "MA120_RAW": m['ma120'], "集中度90": m['scr90'], "集中度70": m['scr70'], "获利盘": profit,
                     "当前决策": decision, "阻力位": m['cost_90'], 
                     "距阻力": (curr-m['cost_90'])/m['cost_90']*100,
                     "距买点": (curr-item['buy'])/item['buy']*100, "需涨幅": (item['sell']-curr)/curr*100
@@ -163,16 +163,15 @@ while True:
     if data_rows:
         df = pd.DataFrame(data_rows).sort_values("距买点")
         with placeholder.container():
-            st.caption(f"数据实时更新中 | 刷新时间: {time.strftime('%H:%M:%S')}")
+            st.caption(f"双重筹码监控中 | 刷新时间: {time.strftime('%H:%M:%S')}")
             st.dataframe(
                 df.style.hide(axis='index')
                 .bar(subset=['获利盘'], color='#FFC1C1', vmin=0, vmax=100)
                 .format("{:.2f}", subset=["现价", "阻力位"])
                 .format("{:+.2f}%", subset=["今日涨跌", "距阻力", "距买点", "需涨幅"])
-                .format("{:.2f}%", subset=["集中度", "获利盘"])
+                .format("{:.2f}%", subset=["集中度90", "集中度70", "获利盘"])
                 .apply(apply_style, axis=1),
-                column_order=("股票", "现价", "今日涨跌", "集中度", "获利盘", "当前决策", "阻力位", "距阻力", "距买点", "需涨幅"),
-                hide_index=True,
-                use_container_width=True, height=800
+                column_order=("股票", "现价", "今日涨跌", "集中度90", "集中度70", "获利盘", "当前决策", "阻力位", "距阻力", "距买点", "需涨幅"),
+                hide_index=True, use_container_width=True, height=800
             )
     time.sleep(5)
