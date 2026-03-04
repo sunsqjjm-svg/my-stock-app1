@@ -87,33 +87,35 @@ def apply_style(row):
     styles = ['text-align: center; vertical-align: middle; font-family: monospace;'] * len(row)
     c = {col: i for i, col in enumerate(row.index)}
     decision = str(row['当前决策'])
-    star_val = row['STAR_RAW'] # 获取隐藏的原始星级分数
+    star_val = row['STAR_RAW'] # 获取隐藏的内部星级分
     
     # 1. 核心行背景：5星起飞(粉红) / 止盈(紫色)
     if "止盈" in decision: return ['background-color: #F8F0FF; color: #6A1B9A; font-weight: bold; text-align: center;'] * len(row)
     if star_val >= 5: return ['background-color: #FFF2F2; color: #D70000; font-weight: bold; text-align: center;'] * len(row)
     
-    # 2. 优质潜伏行背景：4-4.5星(浅香槟金，低饱和度)
+    # 2. 潜伏行背景：4-4.5星顶级筹码 (浅香槟金，低饱和度，优雅降噪)
     if 4 <= star_val < 5:
         styles = ['background-color: #FFFAF0; text-align: center; vertical-align: middle;'] * len(row)
     
-    # 3. 垃圾股降噪：1星(半透明灰色)
+    # 3. 垃圾信号降噪：1星 (灰暗处理)
     if star_val <= 1:
-        styles = ['color: #CCCCCC; text-align: center; vertical-align: middle; opacity: 0.7;'] * len(row)
+        styles = ['color: #BBBBBB; text-align: center; vertical-align: middle; opacity: 0.7;'] * len(row)
 
-    # 4. 现价与涨跌
+    # 4. 现价红绿
     if row['现价'] >= row['MA120_RAW']: styles[c['现价']] += 'color: #D70000; font-weight: bold;'
     else: styles[c['现价']] += 'color: #008000; font-weight: bold;'
+    
+    # 5. 今日涨跌
     if row['今日涨跌'] > 0: styles[c['今日涨跌']] += 'color: #D70000;'
     elif row['今日涨跌'] < 0: styles[c['今日涨跌']] += 'color: #008000;'
     
-    # 5. 【修复】买点亮灯逻辑：垃圾股不亮金灯
-    if abs(row['距买点']) <= 3 and star_val >= 3: # 只有3星及以上才亮灯
+    # 6. 【核心修复】买点亮灯逻辑：仅3星以上才亮金灯，1-2星不亮灯防止干扰
+    if abs(row['距买点']) <= 3 and star_val >= 3: 
         styles[c['距买点']] += 'background-color: #FFD700; color: #D70000; font-weight: 900; border: 2px solid red;'
     elif abs(row['距买点']) <= 10:
         styles[c['距买点']] += 'color: #D70000; font-weight: bold;'
 
-    # 6. 决策胶囊颜色
+    # 7. 决策胶囊颜色
     pill = 'display: inline-block; width: 155px; padding: 2px; border-radius: 12px; font-size: 11px; border: 1px solid;'
     if star_val >= 5: styles[c['当前决策']] += pill + 'background-color: #D70000; color: white;'
     elif star_val >= 4: styles[c['当前决策']] += pill + 'background-color: #B8860B; color: white;'
@@ -126,10 +128,10 @@ def apply_style(row):
 
 # --- 主程序 ---
 st.title("🚀 A股量化决策终端 V16.0")
-st.info("💡 逻辑闭环：3星以下股票进入'降噪模式'，距买点不再高亮预警，防止垃圾信号干扰决策。")
+st.info("💡 系统进化：V16.0 引入'精英准入制'。仅 3★ 以上优质形态亮起'临界买点'金灯，1★ 乌合之众自动进入'降噪模式'。")
 
 if 'model_data' not in st.session_state:
-    with st.spinner("正在校准 V16.0 决策引擎..."):
+    with st.spinner("正在校准 V16.0 精英决策引擎..."):
         st.session_state.model_data = load_base_data()
 
 placeholder = st.empty()
@@ -147,29 +149,42 @@ while True:
                 profit = (m['h_vol'][m['h_close'] <= curr].sum() / m['h_vol'].sum() * 100)
                 dist_buy = (curr-item['buy'])/item['buy']*100
                 
-                # --- V16.0 决策评级引擎 ---
-                decision = "--"; star_score = 2 # 默认2星
+                # --- V16.0 深度分权引擎 ---
+                decision = "--"; star_score = 2 
                 
                 if curr >= item['sell']: 
                     decision = "💰 止盈出局 🚀🚀🚀"; star_score = 6
                 elif curr <= item['buy']: 
                     decision = "⚡ 触发买入 [Buy Now]"; star_score = 5.5
+                
+                # A：顶级筹码
                 elif m['scr90'] < 7:
                     if curr > m['cost_90']: decision = "🚀 点火起飞 [5★]"; star_score = 5
                     elif profit > 90: decision = "💥 临界爆发 [4.5★]"; star_score = 4.8
                     elif profit < 40: decision = f"💎 黄金地窖 [{'4.5★' if m['scr90'] < 5 else '4★'}]"; star_score = 4.5 if m['scr90'] < 5 else 4.2
                     else: decision = f"🧘 极致洗盘 [{'4.5★' if m['scr90'] < 5 else '3.5★'}]"; star_score = 4.5 if m['scr90'] < 5 else 3.5
-                elif m['scr70'] < 7: decision = "🎯 核心聚拢 [3★]"; star_score = 3
-                elif m['scr90'] > 10: decision = "⚠️ 乌合之众 [1★]"; star_score = 1
-                else: decision = "⏳ 正常震荡 [2★]"; star_score = 2
+                
+                # B：趋势走强
+                elif profit > 95 and curr > m['cost_90']:
+                    decision = "📈 趋势走强 [4★]"; star_score = 4
+                
+                # C：核心聚拢
+                elif m['scr70'] < 7:
+                    decision = "🎯 核心聚拢 [3★]"; star_score = 3
+                
+                # D：涣散垃圾
+                elif m['scr90'] > 10:
+                    decision = "⚠️ 乌合之众 [1★]"; star_score = 1
+                else:
+                    decision = "⏳ 正常震荡 [2★]"; star_score = 2
 
-                # 只有优质票才显示临界文字
+                # --- 临界买点逻辑：精英准入 ---
                 if 0 < dist_buy <= 3 and star_score >= 3:
                     decision += " | 🔥 临界"
 
                 data_rows.append({
                     "股票": item['name'], "现价": curr, "今日涨跌": (curr-float(elements[2]))/float(elements[2])*100,
-                    "MA120_RAW": m['ma120'], "STAR_RAW": star_score, # 用于后台样式判断
+                    "MA120_RAW": m['ma120'], "STAR_RAW": star_score,
                     "集中度90": m['scr90'], "集中度70": m['scr70'], "获利盘": profit,
                     "当前决策": decision, "阻力位": m['cost_90'], "距阻力": (curr-m['cost_90'])/m['cost_90']*100,
                     "距买点": dist_buy, "需涨幅": (item['sell']-curr)/curr*100
@@ -177,8 +192,7 @@ while True:
         except: pass
 
     if data_rows:
-        # 双重排序：星级优先，买点第二
-        df = pd.DataFrame(data_rows).sort_values(by=["距买点"], ascending=[True])
+        df = pd.DataFrame(data_rows).sort_values("距买点")
         with placeholder.container():
             st.dataframe(
                 df.style.hide(axis='index')
