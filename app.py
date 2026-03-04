@@ -8,7 +8,7 @@ import time
 # =========================================================================
 #  1. 页面基础配置
 # =========================================================================
-st.set_page_config(page_title="量化决策终端V15.1", layout="wide")
+st.set_page_config(page_title="量化决策终端V15.2", layout="wide")
 
 st.markdown("""
     <style>
@@ -16,6 +16,8 @@ st.markdown("""
     footer {visibility: hidden;}
     header {visibility: hidden;}
     .block-container {padding-top: 1.5rem; padding-bottom: 1rem;}
+    /* 定义一个买点闪烁的动画 */
+    @keyframes blink { 0% {background-color: #ffffff;} 50% {background-color: #FFCCCC;} 100% {background-color: #ffffff;} }
     </style>
 """, unsafe_allow_html=True)
 
@@ -81,52 +83,59 @@ def load_base_data():
     return results
 
 # =========================================================================
-#  V15.1 样式引擎：修正逻辑死角
+#  V15.2 样式引擎：修正视觉优先级
 # =========================================================================
 def apply_style(row):
     styles = ['text-align: center; vertical-align: middle; font-family: monospace;'] * len(row)
     c = {col: i for i, col in enumerate(row.index)}
     decision = str(row['当前决策'])
     
-    # 1. 核心行背景
+    # 1. 核心行背景 (起飞粉红 / 止盈紫色)
     if "止盈" in decision: return ['background-color: #F8F0FF; color: #6A1B9A; font-weight: bold; text-align: center;'] * len(row)
     if "起飞" in decision: return ['background-color: #FFF2F2; color: #D70000; font-weight: bold; text-align: center;'] * len(row)
-    if "🔥" in decision: styles[c['当前决策']] = 'color: #D70000; font-weight: bold; border: 1px solid red;'
+    
+    # 2. 潜伏行背景 (浅金/浅蓝，调低饱和度防止抢戏)
+    if row['集中度90'] < 5 and "起飞" not in decision:
+        styles = ['background-color: #FFFAF0; text-align: center; vertical-align: middle;'] * len(row)
 
-    # 2. 现价红绿
+    # 3. 现价与涨跌颜色
     if row['现价'] >= row['MA120_RAW']: styles[c['现价']] += 'color: #D70000; font-weight: bold;'
     else: styles[c['现价']] += 'color: #008000; font-weight: bold;'
-    
-    # 3. 今日涨跌
     if row['今日涨跌'] > 0: styles[c['今日涨跌']] += 'color: #D70000;'
     elif row['今日涨跌'] < 0: styles[c['今日涨跌']] += 'color: #008000;'
     
-    # 4. 决策胶囊 (新增极品筹码颜色)
+    # 4. 【新功能】买点强力高亮
+    if abs(row['距买点']) <= 3: # 3%以内
+        styles[c['距买点']] += 'background-color: #FFD700; color: #D70000; font-weight: 900; border: 2px solid red;'
+    elif abs(row['距买点']) <= 10:
+        styles[c['距买点']] += 'color: #D70000; font-weight: bold;'
+
+    # 5. 决策胶囊配色
     pill = 'display: inline-block; width: 155px; padding: 2px; border-radius: 12px; font-size: 11px; border: 1px solid;'
     if "起飞" in decision: styles[c['当前决策']] += pill + 'background-color: #D70000; color: white; border-color: #A30000;'
-    elif "临界爆发" in decision: styles[c['当前决策']] += pill + 'background-color: #FF8C00; color: white; border-color: #E67E22;'
-    elif "黄金地窖" in decision: styles[c['当前决策']] += pill + 'background-color: #0077ED; color: white; border-color: #0056B3;'
+    elif "临界" in decision: styles[c['当前决策']] += pill + 'background-color: #FF8C00; color: white; border-color: #E67E22;'
+    elif "地窖" in decision: styles[c['当前决策']] += pill + 'background-color: #0077ED; color: white; border-color: #0056B3;'
+    elif "突破" in decision: styles[c['当前决策']] += pill + 'background-color: #8E44AD; color: white; border-color: #702981;' # 趋势色
     
-    # 极品筹码标识颜色 (深金色)
-    if row['集中度90'] < 5 and "起飞" not in decision and "止盈" not in decision:
-        styles[c['当前决策']] += pill + 'background-color: #B8860B; color: white; border-color: #8B6508;'
-    elif "极致洗盘" in decision: 
+    # 极品筹码标识 (深金色文字)
+    if row['集中度90'] < 5 and "起飞" not in decision:
+        styles[c['当前决策']] += pill + 'background-color: #B8860B; color: white;'
+    elif "洗盘" in decision: 
         styles[c['当前决策']] += pill + 'background-color: #F2FFF0; color: #008F00; border-color: #D9FFD6;'
-    elif "核心聚拢" in decision: 
+    elif "聚拢" in decision: 
         styles[c['当前决策']] += pill + 'background-color: #E0F7FA; color: #00838F; border-color: #B2EBF2;'
-    elif "乌合之众" in decision: 
-        styles[c['当前决策']] += pill + 'background-color: #F8F9FA; color: #BBB; border-color: #F1F3F5;'
+    elif "乌合" in decision: 
+        styles[c['当前决策']] += pill + 'background-color: #F8F9FA; color: #BBB;'
     
-    if abs(row['距买点']) <= 10: styles[c['距买点']] += 'color: #D70000; font-weight: bold; border: 1px solid #FFD2D2;'
     styles[c['获利盘']] += 'border-right: 2px solid #2C3E50 !important; font-weight: bold;'
     return styles
 
 # --- 主程序 ---
-st.title("🚀 A股实战量化决策终端 V15.1")
-st.info("💡 V15.1 升级：集中度 < 5% 自动升星为[4.5★]深金标签；地窖门槛放宽至 40% 获利盘。")
+st.title("🚀 A股量化决策终端 V15.2")
+st.info("💡 V15.2 逻辑升级：增加'趋势走强'判定；优化顶级筹码视觉权重；距买点3%开启强力预警。")
 
 if 'model_data' not in st.session_state:
-    with st.spinner("正在校准最新筹码模型..."):
+    with st.spinner("正在校准模型..."):
         st.session_state.model_data = load_base_data()
 
 placeholder = st.empty()
@@ -144,28 +153,32 @@ while True:
                 profit = (m['h_vol'][m['h_close'] <= curr].sum() / m['h_vol'].sum() * 100)
                 dist_buy = (curr-item['buy'])/item['buy']*100
                 
-                # --- V15.1 最终优化引擎 ---
+                # --- V15.2 决策决策核心逻辑 ---
                 decision = "--"
                 star = "4.5★" if m['scr90'] < 5 else "4★" if profit < 40 else "3.5★"
                 
                 if curr >= item['sell']: decision = "💰 止盈出局 🚀🚀🚀"
                 elif curr <= item['buy']: decision = "⚡ 触发买入 [Buy Now]"
                 
-                # 情况A: 筹码90%绝对集中 (顶级形态)
+                # A：顶级筹码逻辑
                 elif m['scr90'] < 7:
                     if curr > m['cost_90']: decision = "🚀 点火起飞 [5★]"
                     elif profit > 90: decision = "💥 临界爆发 [4.5★]"
-                    elif profit < 40: decision = f"💎 黄金地窖 [{star}]" # 地窖门槛放宽至40%
+                    elif profit < 40: decision = f"💎 黄金地窖 [{star}]"
                     else: decision = f"🧘 极致洗盘 [{star}]"
                 
-                # 情况B: 核心70%集中
+                # B：【新】趋势强势逻辑 (补充非顶级筹码但强势的票)
+                elif profit > 95 and curr > m['cost_90']:
+                    decision = "📈 趋势走强 [4★]"
+                
+                # C：次级筹码逻辑
                 elif m['scr70'] < 7: decision = "🎯 核心聚拢 [3★]"
                 elif m['scr90'] > 10: decision = "⚠️ 乌合之众 [1★]"
                 else: decision = "⏳ 正常震荡 [2★]"
 
-                # 【火警雷达】距买点3%以内强制提醒
+                # 临界买点后缀
                 if 0 < dist_buy <= 3 and "止盈" not in decision:
-                    decision += " | 🔥 临界买点"
+                    decision += " | 🔥 临界"
 
                 data_rows.append({
                     "股票": item['name'], "现价": curr, "今日涨跌": (curr-float(elements[2]))/float(elements[2])*100,
