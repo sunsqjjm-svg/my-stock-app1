@@ -22,20 +22,20 @@ st.markdown("""
 # --- 股票清单 (24只) ---
 stock_list =[
     {"code": "sz002100", "name": "天康生物", "buy": 7.0,   "sell": 10.0},
-    {"code": "sh603977", "name": "国泰集团", "buy": 12.0,  "sell": 20.0},
-    {"code": "sz002408", "name": "齐翔腾达", "buy": 5.0,   "sell": 10.0},
+    {"code": "sh603977", "name": "国泰集团", "buy": 13.0,  "sell": 20.0},
+    {"code": "sz002408", "name": "齐翔腾达", "buy": 5.5,   "sell": 10.0},
     {"code": "sz301058", "name": "中粮科工", "buy": 10.0,  "sell": 18.0},
-    {"code": "sz000928", "name": "中钢国际", "buy": 6.5,   "sell": 10.0},
+    {"code": "sz000928", "name": "中钢国际", "buy": 6.75,   "sell": 10.0},
     {"code": "sh600500", "name": "中化国际", "buy": 4.0,   "sell": 10.0},
-    {"code": "sz300034", "name": "钢研高纳", "buy": 16.0,  "sell": 25.0},
+    {"code": "sz300034", "name": "钢研高纳", "buy": 20.0,  "sell": 25.0},
     {"code": "sh601118", "name": "海南橡胶", "buy": 6.0,   "sell": 10.0},
     {"code": "sh603227", "name": "雪峰科技", "buy": 8.0,   "sell": 12.0},
     {"code": "sh600459", "name": "贵研铂业", "buy": 18.5,  "sell": 25.0},
-    {"code": "sz000731", "name": "四川美丰", "buy": 5.5,   "sell": 10.0},
-    {"code": "sz000707", "name": "双环科技", "buy": 6.0,   "sell": 10.0},
-    {"code": "sz002783", "name": "凯龙股份", "buy": 8.5,   "sell": 15.0},
+    {"code": "sz000731", "name": "四川美丰", "buy": 7.2,   "sell": 10.0},
+    {"code": "sz000707", "name": "双环科技", "buy": 6.15,   "sell": 10.0},
+    {"code": "sz002783", "name": "凯龙股份", "buy": 9,   "sell": 15.0},
     {"code": "sz002237", "name": "恒邦股份", "buy": 14.0,  "sell": 18.0},
-    {"code": "sh688707", "name": "振华新材", "buy": 10.0,  "sell": 20.0},
+    {"code": "sh688707", "name": "振华新材", "buy": 13.0,  "sell": 20.0},
     {"code": "sz300527", "name": "中船应急", "buy": 7.5,   "sell": 12.0},
     {"code": "sh600299", "name": "安迪苏",   "buy": 9.5,   "sell": 15.0},
     {"code": "sz002556", "name": "辉隆股份", "buy": 5.3,   "sell": 8.0},
@@ -44,7 +44,7 @@ stock_list =[
     {"code": "sz300470", "name": "中密控股", "buy": 34.0,  "sell": 60.0},
     {"code": "sh600731", "name": "湖南海利", "buy": 6.0,   "sell": 10.0},
     {"code": "sz002136", "name": "安纳达",   "buy": 12.0,  "sell": 20.0},
-    {"code": "sh601618", "name": "中国中冶", "buy": 3.0,   "sell": 10.0},
+    {"code": "sh601618", "name": "中国中冶", "buy": 3.15,   "sell": 10.0},
 ]
 
 # --- 核心算法 ---
@@ -205,3 +205,4 @@ while True:
                 hide_index=True, use_container_width=True, height=800
             )
     time.sleep(5)
+
