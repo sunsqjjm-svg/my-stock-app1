@@ -27,7 +27,7 @@ stock_list =[
     {"code": "sz301058", "name": "中粮科工", "buy": 10.0,  "sell": 18.0},
     {"code": "sz000928", "name": "中钢国际", "buy": 6.75,   "sell": 10.0},
     {"code": "sh600500", "name": "中化国际", "buy": 4.0,   "sell": 10.0},
-    {"code": "sz300034", "name": "钢研高纳", "buy": 20.0,  "sell": 25.0},
+    {"code": "sz300034", "name": "钢研高纳", "buy": 20.0,  "sell": 30.0},
     {"code": "sh601118", "name": "海南橡胶", "buy": 6.0,   "sell": 10.0},
     {"code": "sh603227", "name": "雪峰科技", "buy": 8.0,   "sell": 12.0},
     {"code": "sh600459", "name": "贵研铂业", "buy": 18.5,  "sell": 25.0},
