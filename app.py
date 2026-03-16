@@ -19,7 +19,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 股票清单 (24只) ---
+# --- 股票清单 (25只) ---
 stock_list =[
     {"code": "sz002100", "name": "天康生物", "buy": 7.0,   "sell": 10.0},
     {"code": "sh603977", "name": "国泰集团", "buy": 13.0,  "sell": 20.0},
@@ -44,6 +44,7 @@ stock_list =[
     {"code": "sz300470", "name": "中密控股", "buy": 34.0,  "sell": 60.0},
     {"code": "sh600731", "name": "湖南海利", "buy": 6.0,   "sell": 10.0},
     {"code": "sz002136", "name": "安纳达",   "buy": 12.0,  "sell": 20.0},
+    {"code": "sh600409", "name": "三友化工",   "buy": 6.0,  "sell": 12.0},
     {"code": "sh601618", "name": "中国中冶", "buy": 3.15,   "sell": 10.0},
 ]
 
