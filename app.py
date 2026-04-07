@@ -33,6 +33,7 @@ stock_list =[
     {"code": "sh600459", "name": "贵研铂业", "buy": 18.5,  "sell": 25.0},
     {"code": "sz000731", "name": "四川美丰", "buy": 7.2,   "sell": 10.0},
     {"code": "sz000707", "name": "双环科技", "buy": 6.15,   "sell": 10.0},
+    {"code": "sz000819", "name": "岳阳兴长", "buy": 14.0,   "sell": 30.0},
     {"code": "sz002783", "name": "凯龙股份", "buy": 9,   "sell": 15.0},
     {"code": "sz002237", "name": "恒邦股份", "buy": 14.0,  "sell": 18.0},
     {"code": "sh688707", "name": "振华新材", "buy": 13.0,  "sell": 20.0},
