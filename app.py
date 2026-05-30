@@ -4,11 +4,12 @@ import requests
 import pandas as pd
 import numpy as np
 import time
+import akshare as ak
 
 # =========================================================================
 #  1. 页面基础配置
 # =========================================================================
-st.set_page_config(page_title="量化决策终端V17.0", layout="wide")
+st.set_page_config(page_title="量化决策终端V17.1", layout="wide")
 
 st.markdown("""
     <style>
@@ -19,7 +20,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 股票清单 (保持不变) ---
+# --- 股票清单 ---
 stock_list =[
     {"code": "sz002100", "name": "天康生物", "buy": 7.0,   "sell": 10.0},
     {"code": "sh603977", "name": "国泰集团", "buy": 13.0,  "sell": 20.0},
@@ -34,7 +35,7 @@ stock_list =[
     {"code": "sz000731", "name": "四川美丰", "buy": 7.2,   "sell": 10.0},
     {"code": "sz000707", "name": "双环科技", "buy": 6.15,   "sell": 10.0},
     {"code": "sz000819", "name": "岳阳兴长", "buy": 14.0,   "sell": 30.0},
-    {"code": "sz002783", "name": "凯龙股份", "buy": 9,   "sell": 15.0},
+    {"code": "sz002783", "name": "凯龙股份", "buy": 9.0,    "sell": 15.0},
     {"code": "sz002237", "name": "恒邦股份", "buy": 14.0,  "sell": 18.0},
     {"code": "sh688707", "name": "振华新材", "buy": 13.0,  "sell": 20.0},
     {"code": "sz300527", "name": "中船应急", "buy": 7.5,   "sell": 12.0},
@@ -57,154 +58,127 @@ def calculate_advanced_scr(df_part):
         total_vol = df_sorted['Volume'].sum()
         p05 = df_sorted.iloc[df_sorted['CumVol'].searchsorted(total_vol * 0.05)]['Close']
         p95 = df_sorted.iloc[min(df_sorted['CumVol'].searchsorted(total_vol * 0.95), len(df_sorted)-1)]['Close']
-        p15 = df_sorted.iloc[df_sorted['CumVol'].searchsorted(total_vol * 0.15)]['Close']
-        p85 = df_sorted.iloc[min(df_sorted['CumVol'].searchsorted(total_vol * 0.85), len(df_sorted)-1)]['Close']
-        return (p95-p05)/(p95+p05)*100, (p85-p15)/(p85+p15)*100, p95
-    except: return 999, 999, 0
+        return (p95-p05)/(p95+p05)*100, p95
+    except: return 999, 0
 
 @st.cache_data(ttl=3600)
 def load_base_data():
+    # 1. 批量获取 A 股最新的每股净资产 (来自东财接口)
+    try:
+        df_spot = ak.stock_zh_a_spot_em()
+        # 建立 股票代码 -> 净资产 的快速字典
+        asset_map = {row['代码']: row['每股净资产'] for _, row in df_spot.iterrows()}
+    except:
+        asset_map = {}
+
     yahoo_tickers = [item['code'][2:] + (".SS" if item['code'].startswith('sh') else ".SZ") for item in stock_list]
+    
+    # 2. 批量获取历史K线
     data = yf.download(" ".join(yahoo_tickers), period="6mo", progress=False)
     results = {}
     
     for y_code, item in zip(yahoo_tickers, stock_list):
         try:
-            # 获取净资产 (通过 yfinance info)
-            ticker_obj = yf.Ticker(y_code)
-            # A股净资产获取可能不稳定，如果 info 拿不到，默认给一个1.0防止报错
-            net_asset = ticker_obj.info.get('bookValue', 1.0) 
+            raw_code = item['code'][2:]
+            net_asset = asset_map.get(raw_code, 1.0) # 如果查不到，默认1.0避免报错
             
             s_close = data['Close'][y_code] if isinstance(data.columns, pd.MultiIndex) else data['Close']
             s_vol = data['Volume'][y_code] if isinstance(data.columns, pd.MultiIndex) else data['Volume']
             df = pd.DataFrame({'Close': s_close, 'Volume': s_vol}).dropna()
+            
             if len(df) > 0:
                 df_calc = df.iloc[-120:]
-                scr90, scr70, cost90 = calculate_advanced_scr(df_calc)
+                scr90, cost90 = calculate_advanced_scr(df_calc)
                 results[item['code']] = {
-                    'h_close': df_calc['Close'].values, 'h_vol': df_calc['Volume'].values,
-                    'ma120': float(df_calc['Close'].mean()), 'scr90': scr90, 'scr70': scr70, 'cost_90': cost90,
-                    'net_asset': net_asset
+                    'h_close': df_calc['Close'].values, 
+                    'h_vol': df_calc['Volume'].values,
+                    'ma120': float(df_calc['Close'].mean()), 
+                    'scr90': scr90, 
+                    'cost_90': cost90,
+                    'net_asset': float(net_asset) if net_asset else 1.0
                 }
         except: pass
     return results
 
 # =========================================================================
-#  V17.0 样式引擎
+#  样式引擎
 # =========================================================================
 def apply_style(row):
-    styles = ['text-align: center; vertical-align: middle; font-family: monospace;'] * len(row)
+    styles = ['text-align: center; vertical-align: middle;'] * len(row)
     c = {col: i for i, col in enumerate(row.index)}
-    decision = str(row['当前决策'])
     star_val = row['STAR_RAW']
     pb_val = row['PB']
     
-    # 1. 核心行背景
-    if "止盈" in decision: return ['background-color: #F8F0FF; color: #6A1B9A; font-weight: bold; text-align: center;'] * len(row)
-    if star_val >= 5: return ['background-color: #FFF2F2; color: #D70000; font-weight: bold; text-align: center;'] * len(row)
+    # 核心高亮：止盈或高星
+    if star_val >= 5: styles = ['background-color: #FFF2F2; color: #D70000; font-weight: bold; text-align: center;'] * len(row)
     
-    # 2. 8折特价房高亮 (PB < 0.8)
-    if pb_val <= 0.8:
-        styles = ['background-color: #FFF9E6; border: 1px solid #FFD700; text-align: center;'] * len(row)
+    # PB 8折提醒
+    if 0 < pb_val <= 0.8:
+        styles[c['PB']] += 'background-color: #FFD700; color: #000; font-weight: bold;'
+        styles[c['当前决策']] += 'border: 2px solid #FFD700;'
 
-    # 3. 潜伏行背景
-    if 4 <= star_val < 5:
-        styles = ['background-color: #FFFAF0; text-align: center; vertical-align: middle;'] * len(row)
-    
-    # 4. 垃圾信号降噪
-    if star_val <= 1:
-        styles = ['color: #BBBBBB; text-align: center; vertical-align: middle; opacity: 0.7;'] * len(row)
-
-    # 5. 现价红绿
+    # 现价红绿
     if row['现价'] >= row['MA120_RAW']: styles[c['现价']] += 'color: #D70000; font-weight: bold;'
     else: styles[c['现价']] += 'color: #008000; font-weight: bold;'
-    
-    # 6. PB 列高亮逻辑
-    if pb_val <= 0.8:
-        styles[c['PB']] += 'background-color: #D70000; color: white; font-weight: bold;'
-
-    # 7. 买点亮灯
-    if abs(row['距买点']) <= 3 and star_val >= 3: 
-        styles[c['距买点']] += 'background-color: #FFD700; color: #D70000; font-weight: 900; border: 2px solid red;'
-
-    # 8. 决策胶囊
-    pill = 'display: inline-block; width: 155px; padding: 2px; border-radius: 12px; font-size: 11px; border: 1px solid;'
-    if star_val >= 5: styles[c['当前决策']] += pill + 'background-color: #D70000; color: white;'
-    elif star_val >= 4: styles[c['当前决策']] += pill + 'background-color: #B8860B; color: white;'
-    elif star_val <= 1: styles[c['当前决策']] += pill + 'background-color: #F8F9FA; color: #BBB;'
     
     return styles
 
 # --- 主程序 ---
-st.title("🚀 A股量化决策终端 V17.0")
-st.info("💡 系统更新：已集成'资产估值引擎'。若股价低于净资产8折，将触发 [💎 破净特价] 预警并高亮 PB 列。")
+st.title("🚀 A股量化决策终端 V17.1")
+st.caption("数据引擎：实时价格(新浪) | 历史筹码(Yahoo) | 财务净资产(东财)")
 
 if 'model_data' not in st.session_state:
-    with st.spinner("正在加载财务数据与筹码模型..."):
+    with st.status("正在校准数据引擎...", expanded=True) as status:
+        st.write("正在从东财抓取净资产数据...")
         st.session_state.model_data = load_base_data()
+        status.update(label="引擎校准完成!", state="complete", expanded=False)
 
 placeholder = st.empty()
 
 while True:
     data_rows = []
+    # 模拟实时数据获取
     for item in stock_list:
         try:
-            res = requests.get(f"http://hq.sinajs.cn/list={item['code']}", headers={'Referer': 'http://finance.sina.com.cn'}, timeout=2)
+            res = requests.get(f"http://hq.sinajs.cn/list={item['code']}", headers={'Referer': 'http://finance.sina.com.cn'}, timeout=1)
             elements = res.text.split(',')
             if len(elements) > 3:
                 curr = float(elements[3]) if float(elements[3]) != 0 else float(elements[2])
                 m = st.session_state.model_data.get(item['code'])
                 if not m: continue
                 
-                net_asset = m['net_asset']
-                pb = curr / net_asset if net_asset > 0 else 0
+                # 计算逻辑
+                pb = curr / m['net_asset']
                 profit = (m['h_vol'][m['h_close'] <= curr].sum() / m['h_vol'].sum() * 100)
                 dist_buy = (curr-item['buy'])/item['buy']*100
                 
-                decision = "--"; star_score = 2 
+                # 决策
+                decision = "⏳ 正常震荡"
+                star_score = 2
+                if curr >= item['sell']: decision = "💰 止盈出局"; star_score = 6
+                elif curr <= item['buy']: decision = "⚡ 触发买入"; star_score = 5.5
+                elif pb <= 0.8: decision = "💎 破净特价"; star_score = 4.5
+                elif m['scr90'] < 7: decision = "🚀 筹码高度集中"; star_score = 4
                 
-                # --- 核心决策引擎 ---
-                if curr >= item['sell']: 
-                    decision = "💰 止盈出局 🚀🚀🚀"; star_score = 6
-                elif curr <= item['buy']: 
-                    decision = "⚡ 触发买入 [Buy Now]"; star_score = 5.5
-                elif m['scr90'] < 7:
-                    if curr > m['cost_90']: decision = "🚀 点火起飞 [5★]"; star_score = 5
-                    elif profit > 90: decision = "💥 临界爆发 [4.5★]"; star_score = 4.8
-                    else: decision = "🧘 极致洗盘 [4★]"; star_score = 4
-                elif m['scr90'] > 10:
-                    decision = "⚠️ 乌合之众 [1★]"; star_score = 1
-                else:
-                    decision = "⏳ 正常震荡 [2★]"; star_score = 2
-
-                # --- 8折净资产提醒逻辑 ---
-                if pb <= 0.8:
-                    decision = "💎 破净特价 · " + decision
-                    if star_score < 4.5: star_score += 0.5 # 价值加分
-
-                if 0 < dist_buy <= 3 and star_score >= 3:
-                    decision += " | 🔥 临界"
-
                 data_rows.append({
                     "股票": item['name'], "现价": curr, "今日涨跌": (curr-float(elements[2]))/float(elements[2])*100,
                     "MA120_RAW": m['ma120'], "STAR_RAW": star_score,
-                    "每股净资产": net_asset, "PB": pb,
-                    "集中度90": m['scr90'], "集中度70": m['scr70'], "获利盘": profit,
-                    "当前决策": decision, "距买点": dist_buy, "需涨幅": (item['sell']-curr)/curr*100
+                    "每股净资产": m['net_asset'], "PB": pb,
+                    "获利盘": profit, "集中度90": m['scr90'],
+                    "当前决策": decision, "距买点": dist_buy
                 })
         except: pass
 
     if data_rows:
-        df = pd.DataFrame(data_rows).sort_values("距买点")
+        df = pd.DataFrame(data_rows).sort_values("STAR_RAW", ascending=False)
         with placeholder.container():
             st.dataframe(
                 df.style.hide(axis='index')
-                .bar(subset=['获利盘'], color='#FFC1C1', vmin=0, vmax=100)
                 .format("{:.2f}", subset=["现价", "每股净资产", "PB"])
-                .format("{:+.2f}%", subset=["今日涨跌", "距买点", "需涨幅"])
-                .format("{:.2f}%", subset=["集中度90", "集中度70", "获利盘"])
+                .format("{:+.2f}%", subset=["今日涨跌", "距买点"])
+                .format("{:.2f}%", subset=["获利盘", "集中度90"])
                 .apply(apply_style, axis=1),
-                column_order=("股票", "现价", "今日涨跌", "每股净资产", "PB", "获利盘", "集中度90", "当前决策", "距买点", "需涨幅"),
-                hide_index=True, use_container_width=True, height=800
+                column_order=("股票", "现价", "今日涨跌", "每股净资产", "PB", "获利盘", "集中度90", "当前决策", "距买点"),
+                use_container_width=True, height=800
             )
     time.sleep(5)
