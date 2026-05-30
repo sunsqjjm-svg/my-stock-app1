@@ -1,6 +1,6 @@
 streamlit
-yfinance
 akshare
+yfinance
 pandas
 numpy
 requests
